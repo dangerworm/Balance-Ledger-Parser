@@ -1,39 +1,28 @@
-# Balance-Ledger-Parser
+# Ledger HTR Lab
 
-A script which aims to parse a bound merchant ledger dating to circa 1770
+Prototype web application for quickly testing handwritten text recognition (HTR) on ledger scans. The tool lets you upload an image, select a region, run an HTR engine, and view recognized text alongside a cropped preview.
 
-## Usage
+## Structure
 
-In Ubuntu: create a venv + install Kraken
+- `backend/` — FastAPI service with in-memory storage and pluggable HTR engines.
+- `frontend/` — React + Vite single-page app for upload, selection, and result display.
 
-```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip
-
-python3 -m venv ~/venvs/kraken
-source ~/venvs/kraken/bin/activate
-
-pip install --upgrade pip
-pip install pytorch
-pip install "kraken[pdf]"
-```
-
-### Advice from ChatGPT
-
-A typical “one image → text” flow is:
-
-- Binarize (optional but often helps old paper)
-- Segment (lines)
-- Recognize using a model
-
-You’ll need a model (.mlmodel). If you don’t have one yet, you can:
-
-- try an existing model that’s “close enough” (Latin handwriting / historical print), then
-- fine-tune on your own hand later (best results)
-
-### Run
+## Running the backend
 
 ```bash
-source ~/venvs/kraken/bin/activate
-python kraken_batch_zip.py "/mnt/c/Path/To/ledger.zip" --model "/mnt/c/Path/To/model.mlmodel"
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
+
+## Running the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Set `VITE_API_URL` to point to the backend if it differs from `http://localhost:8000`.
