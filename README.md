@@ -12,5 +12,17 @@ python3 -m venv ~/venvs/kraken
 source ~/venvs/kraken/bin/activate
 
 pip install --upgrade pip
-pip install "kraken[pdf]"
+pip install pytorch
+pip install "kraken[pdf]" 
 ```
+
+## Advice from ChatGPT
+
+A typical “one image → text” flow is:
+- Binarize (optional but often helps old paper)
+- Segment (lines)
+- Recognize using a model
+
+You’ll need a model (.mlmodel). If you don’t have one yet, you can:
+- try an existing model that’s “close enough” (Latin handwriting / historical print), then
+- fine-tune on your own hand later (best results)
