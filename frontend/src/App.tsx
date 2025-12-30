@@ -1,106 +1,83 @@
-import React, { useCallback, useMemo, useState } from 'react'
-import Dropzone from './components/Dropzone'
-import ImageAnnotator from './components/ImageAnnotator'
+import React, { useCallback, useState } from 'react'
+import {
+    API_BASE_URL,
+    FullPageResponse,
+    PreprocessConfig,
+    transcribeFullPage,
+    uploadImage,
+} from './api'
 import Controls from './components/Controls'
+import Dropzone from './components/Dropzone'
 import ResultPanel from './components/ResultPanel'
-import { API_BASE_URL, BBox, HtrResponse, runHtr, uploadImage } from './api'
-
-type Size = { width: number; height: number }
 
 const App: React.FC = () => {
   const [imageId, setImageId] = useState<string | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [naturalSize, setNaturalSize] = useState<Size | null>(null)
-  const [displaySize, setDisplaySize] = useState<Size | null>(null)
-  const [selectionDisplay, setSelectionDisplay] = useState<BBox | null>(null)
-  const [selectionImage, setSelectionImage] = useState<BBox | null>(null)
-  const [result, setResult] = useState<HtrResponse | null>(null)
-  const [engine, setEngine] = useState<string>('dummy')
+  const [fullPageResult, setFullPageResult] = useState<FullPageResponse | null>(null)
+  const [preprocess, setPreprocess] = useState<PreprocessConfig>({
+    grayscale: false,
+    binarize: false,
+  })
   const [error, setError] = useState<string | null>(null)
+  const [isTranscribing, setIsTranscribing] = useState<boolean>(false)
 
   const handleFileSelected = useCallback(async (file: File) => {
+    console.log('File selected:', file.name, 'API_BASE_URL:', API_BASE_URL)
     try {
       const res = await uploadImage(file)
+      console.log('Upload successful:', res)
       setImageId(res.image_id)
       setImageUrl(`${API_BASE_URL}/api/image/${res.image_id}`)
-      setNaturalSize({ width: res.width, height: res.height })
-      setSelectionDisplay(null)
-      setSelectionImage(null)
-      setResult(null)
+      setFullPageResult(null)
       setError(null)
     } catch (err) {
-      setError((err as Error).message)
+      console.error('Upload error:', err)
+      setError(`Upload failed: ${(err as Error).message}`)
+      setImageId(null)
+      setImageUrl(null)
     }
   }, [])
 
-  const convertSelection = useCallback(
-    (selection: BBox | null, natural: Size | null, display: Size | null) => {
-      if (!selection || !natural || !display) return null
-      const scaleX = natural.width / display.width
-      const scaleY = natural.height / display.height
-      return {
-        x: Math.round(selection.x * scaleX),
-        y: Math.round(selection.y * scaleY),
-        w: Math.round(selection.w * scaleX),
-        h: Math.round(selection.h * scaleY),
-      }
-    },
-    [],
-  )
-
-  const handleSelectionChange = (bbox: BBox | null) => {
-    setSelectionDisplay(bbox)
-    setSelectionImage(convertSelection(bbox, naturalSize, displaySize))
-  }
-
-  const handleRun = async () => {
-    if (!imageId || !selectionImage) return
+  const handleTranscribePage = async () => {
+    if (!imageId) return
+    setIsTranscribing(true)
     try {
-      const response = await runHtr(imageId, selectionImage, engine)
-      setResult(response)
+      const response = await transcribeFullPage(imageId, preprocess)
+      setFullPageResult(response)
       setError(null)
     } catch (err) {
       setError((err as Error).message)
+    } finally {
+      setIsTranscribing(false)
     }
   }
 
   const handleClear = () => {
-    setSelectionDisplay(null)
-    setSelectionImage(null)
-    setResult(null)
+    setFullPageResult(null)
     setError(null)
   }
 
-  const handleDisplaySizeChange = (size: Size) => {
-    setDisplaySize(size)
-    if (selectionDisplay) {
-      setSelectionImage(convertSelection(selectionDisplay, naturalSize, size))
-    }
-  }
-
-  const selectionInfo = useMemo(() => selectionImage ?? selectionDisplay, [selectionDisplay, selectionImage])
-
   return (
     <div className="app-container">
-      <ImageAnnotator
-        imageUrl={imageUrl ?? undefined}
-        naturalSize={naturalSize ?? undefined}
-        selection={selectionDisplay}
-        onSelectionDisplayChange={handleSelectionChange}
-        onDisplaySizeChange={handleDisplaySizeChange}
-      />
+      <div className="image-panel-container">
+        {imageUrl && (
+          <div style={{ maxWidth: '100%', maxHeight: '80vh', overflow: 'auto' }}>
+            <img src={imageUrl} alt="Uploaded document" style={{ maxWidth: '100%', height: 'auto' }} />
+          </div>
+        )}
+      </div>
       <div className="panel">
         <h2>Ledger HTR Lab</h2>
         <Dropzone onFileSelected={handleFileSelected} />
         <Controls
           hasImage={Boolean(imageId)}
-          selection={selectionDisplay}
-          engine={engine}
-          onEngineChange={setEngine}
-          onRun={handleRun}
+          preprocess={preprocess}
+          onPreprocessChange={setPreprocess}
+          onTranscribePage={handleTranscribePage}
           onClear={handleClear}
+          isTranscribing={isTranscribing}
         />
-        <ResultPanel result={result} bbox={selectionInfo} error={error} />
+        <ResultPanel fullPageResult={fullPageResult} error={error} />
       </div>
     </div>
   )

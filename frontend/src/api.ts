@@ -8,16 +8,29 @@ export type UploadResponse = {
 
 export type BBox = { x: number; y: number; w: number; h: number }
 
-export type HtrResponse = {
-  image_id: string
-  engine: string
-  bbox: BBox
+export type PreprocessConfig = {
+  grayscale: boolean
+  binarize: boolean
+}
+
+export type TranscribedLine = {
+  line_id: string
   text: string
   confidence?: number | null
-  crop_image_url: string
+  bbox: BBox
+  baseline: [number, number][]
+}
+
+export type FullPageResponse = {
+  image_id: string
+  preprocess_applied: string[]
+  lines: TranscribedLine[]
+  elapsed_ms: number
+  total_lines: number
 }
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+export const API_BASE_URL = BASE_URL
 
 export async function uploadImage(file: File): Promise<UploadResponse> {
   const formData = new FormData()
@@ -32,21 +45,21 @@ export async function uploadImage(file: File): Promise<UploadResponse> {
   return res.json()
 }
 
-export async function runHtr(imageId: string, bbox: BBox, engine: string): Promise<HtrResponse> {
-  const res = await fetch(`${BASE_URL}/api/htr`, {
+export async function transcribeFullPage(
+  imageId: string,
+  preprocess?: PreprocessConfig
+): Promise<FullPageResponse> {
+  const res = await fetch(`${BASE_URL}/api/transcribe-page`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image_id: imageId, bbox, engine }),
+    body: JSON.stringify({
+      image_id: imageId,
+      preprocess: preprocess || undefined,
+    }),
   })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
-    throw new Error(detail.detail || 'HTR failed')
+    throw new Error(detail.detail || 'Full page transcription failed')
   }
-  const data: HtrResponse = await res.json()
-  if (data.crop_image_url.startsWith('/')) {
-    data.crop_image_url = `${BASE_URL}${data.crop_image_url}`
-  }
-  return data
+  return res.json()
 }
-
-export const API_BASE_URL = BASE_URL

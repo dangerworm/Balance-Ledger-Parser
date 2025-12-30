@@ -1,30 +1,52 @@
 import React from 'react'
-import { BBox } from '../api'
+import { PreprocessConfig } from '../api'
 
 type Props = {
   hasImage: boolean
-  selection: BBox | null
-  engine: string
-  onEngineChange: (value: string) => void
-  onRun: () => void
+  preprocess: PreprocessConfig
+  onPreprocessChange: (config: PreprocessConfig) => void
+  onTranscribePage: () => void
   onClear: () => void
+  isTranscribing: boolean
 }
 
-const Controls: React.FC<Props> = ({ hasImage, selection, engine, onEngineChange, onRun, onClear }) => {
+const Controls: React.FC<Props> = ({
+  hasImage,
+  preprocess,
+  onPreprocessChange,
+  onTranscribePage,
+  onClear,
+  isTranscribing,
+}) => {
   return (
     <div className="controls panel">
-      <div>
-        <label htmlFor="engine">Engine</label>
-        <select id="engine" value={engine} onChange={(e) => onEngineChange(e.target.value)}>
-          <option value="dummy">Dummy</option>
-          <option value="tesseract">Tesseract</option>
-        </select>
+      <div className="preprocess-controls">
+        <label>Preprocessing</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.875rem' }}>
+          <label>
+            <input
+              type="checkbox"
+              checked={preprocess.grayscale}
+              onChange={(e) => onPreprocessChange({ ...preprocess, grayscale: e.target.checked })}
+            />
+            {' '}Grayscale
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={preprocess.binarize}
+              onChange={(e) => onPreprocessChange({ ...preprocess, binarize: e.target.checked })}
+            />
+            {' '}Binarize
+          </label>
+        </div>
       </div>
-      <button onClick={onRun} disabled={!hasImage || !selection}>
-        Run HTR
+
+      <button onClick={onTranscribePage} disabled={!hasImage || isTranscribing} style={{ marginTop: '0.5rem' }}>
+        {isTranscribing ? 'Transcribing...' : 'Transcribe Full Page'}
       </button>
-      <button onClick={onClear} disabled={!selection}>
-        Clear selection
+      <button onClick={onClear} disabled={!hasImage}>
+        Clear results
       </button>
     </div>
   )

@@ -1,16 +1,15 @@
 import io
-from typing import Dict
+import time
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from PIL import Image
 
-from .htr.base import HtrEngine
-from .htr.dummy import DummyHtrEngine
-from .htr.tesseract_engine import TesseractHtrEngine
-from .models.schemas import BBox, HealthResponse, HtrRequest, HtrResponse, UploadResponse
+from .htr.kraken_htr_engine import KrakenHtrEngine
+from .models.schemas import HealthResponse, UploadResponse, FullPageRequest, FullPageResponse, TranscribedLine, BBox
 from .storage.memory_store import MemoryImageStore
+from .preprocess import apply_preprocessing, PreprocessConfig
 
 
 ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
@@ -26,17 +25,14 @@ app.add_middleware(
 
 
 store = MemoryImageStore()
-htr_engines: Dict[str, HtrEngine] = {
-    "dummy": DummyHtrEngine(),
-    "tesseract": TesseractHtrEngine(),
-}
 
-
-def validate_bbox(bbox: BBox) -> None:
-    if bbox.w <= 0 or bbox.h <= 0:
-        raise HTTPException(status_code=400, detail="Invalid bbox dimensions")
-    if bbox.x < 0 or bbox.y < 0:
-        raise HTTPException(status_code=400, detail="Invalid bbox position")
+# Initialize Kraken engine
+try:
+    kraken_engine = KrakenHtrEngine()
+    print("Kraken engine initialized successfully")
+except Exception as e:
+    print(f"Failed to initialize Kraken engine: {e}")
+    kraken_engine = None
 
 
 @app.post("/api/upload", response_model=UploadResponse)
@@ -54,7 +50,7 @@ async def upload_image(file: UploadFile = File(...)) -> UploadResponse:
     return UploadResponse(
         image_id=image_id,
         filename=file.filename or "",
-        content_type=file.content_type,
+        content_type=file.content_type or "",
         width=width,
         height=height,
     )
@@ -68,47 +64,86 @@ async def get_image(image_id: str):
     return Response(content=stored.content, media_type=stored.content_type)
 
 
-@app.get("/api/crop/{crop_id}")
-async def get_crop(crop_id: str):
-    stored = store.get_crop(crop_id)
-    if not stored:
-        raise HTTPException(status_code=404, detail="Crop not found")
-    return Response(content=stored.content, media_type=stored.content_type)
-
-
-@app.post("/api/htr", response_model=HtrResponse)
-async def run_htr(request: HtrRequest) -> HtrResponse:
-    validate_bbox(request.bbox)
-    stored = store.get_image(request.image_id)
-    if not stored:
-        raise HTTPException(status_code=404, detail="Image not found")
-
-    image = Image.open(io.BytesIO(stored.content))
-    x, y, w, h = store.clamp_bbox(request.bbox.x, request.bbox.y, request.bbox.w, request.bbox.h, image)
-    if w <= 0 or h <= 0:
-        raise HTTPException(status_code=400, detail="Invalid bbox after clamping")
-
-    crop = image.crop((x, y, x + w, y + h))
-    engine = htr_engines.get(request.engine)
-    if not engine:
-        raise HTTPException(status_code=400, detail="Unsupported engine")
-
-    result = engine.run(crop)
-    crop_bytes_io = io.BytesIO()
-    crop.save(crop_bytes_io, format="PNG")
-    crop_bytes = crop_bytes_io.getvalue()
-    crop_id = store.save_crop(crop_bytes, "image/png")
-
-    return HtrResponse(
-        image_id=request.image_id,
-        engine=engine.name,
-        bbox=BBox(x=x, y=y, w=w, h=h),
-        text=result.get("text", ""),
-        confidence=result.get("confidence"),
-        crop_image_url=f"/api/crop/{crop_id}",
-    )
-
-
 @app.get("/api/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(ok=True)
+
+
+@app.post("/api/transcribe-page", response_model=FullPageResponse)
+async def transcribe_full_page(request: FullPageRequest):
+    """
+    Transcribe an entire page using Kraken's automatic line segmentation.
+    """
+    if not kraken_engine:
+        raise HTTPException(status_code=503, detail="Kraken engine not available")
+
+    # Get the full image
+    image = store.get_pil_image(request.image_id)
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Apply preprocessing if requested
+    preprocess_applied = []
+    if request.preprocess:
+        preprocess_config = PreprocessConfig(
+            grayscale=request.preprocess.grayscale,
+            binarize=request.preprocess.binarize
+        )
+        preprocess_result = apply_preprocessing(image, preprocess_config)
+        image = preprocess_result.image
+        preprocess_applied = preprocess_result.applied_steps
+
+    # Run segmentation and recognition
+    start_time = time.time()
+    results = kraken_engine.segment_and_recognize(image)
+    elapsed_ms = int((time.time() - start_time) * 1000)
+
+    # Convert results to response format
+    transcribed_lines = []
+    for idx, result in enumerate(results):
+        # Extract confidence
+        all_confidences = []
+        if hasattr(result, 'confidences') and result.confidences:
+            all_confidences.extend(result.confidences)
+        avg_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else None
+
+        # Get bounding box from baseline
+        baseline = result.baseline
+        boundary = result.boundary if hasattr(result, 'boundary') else None
+
+        # Calculate bbox from boundary or baseline
+        if boundary:
+            xs = [p[0] for p in boundary]
+            ys = [p[1] for p in boundary]
+            bbox = BBox(
+                x=int(min(xs)),
+                y=int(min(ys)),
+                w=int(max(xs) - min(xs)),
+                h=int(max(ys) - min(ys))
+            )
+        else:
+            # Fallback to baseline if no boundary
+            xs = [p[0] for p in baseline]
+            ys = [p[1] for p in baseline]
+            bbox = BBox(
+                x=int(min(xs)),
+                y=int(min(ys)),
+                w=int(max(xs) - min(xs)),
+                h=20  # Default height
+            )
+
+        transcribed_lines.append(TranscribedLine(
+            line_id=f"line_{idx}",
+            text=result.prediction,
+            confidence=avg_confidence,
+            bbox=bbox,
+            baseline=baseline
+        ))
+
+    return FullPageResponse(
+        image_id=request.image_id,
+        preprocess_applied=preprocess_applied,
+        lines=transcribed_lines,
+        elapsed_ms=elapsed_ms,
+        total_lines=len(transcribed_lines)
+    )

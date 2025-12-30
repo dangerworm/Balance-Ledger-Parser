@@ -1,35 +1,54 @@
 import React from 'react'
-import { BBox, HtrResponse } from '../api'
+import { FullPageResponse } from '../api'
 
 type Props = {
-  result: HtrResponse | null
-  bbox: BBox | null
+  fullPageResult: FullPageResponse | null
   error: string | null
 }
 
-const ResultPanel: React.FC<Props> = ({ result, bbox, error }) => {
+const ResultPanel: React.FC<Props> = ({ fullPageResult, error }) => {
   return (
     <div className="panel">
       <h3>Result</h3>
       {error && <p className="error">{error}</p>}
-      {result ? (
+
+      {fullPageResult ? (
         <div>
           <p>
-            <strong>Engine:</strong> {result.engine}
+            <strong>Elapsed:</strong> {fullPageResult.elapsed_ms}ms
           </p>
-          <div className="result-block">
-            {result.text || <em>No text returned</em>}
-          </div>
-          <p>Confidence: {result.confidence ?? 'N/A'}</p>
-          <p>BBox: {JSON.stringify(result.bbox)}</p>
-          {result.crop_image_url && (
-            <img src={result.crop_image_url} alt="Crop preview" style={{ maxWidth: '100%', marginTop: '0.5rem' }} />
+          <p>
+            <strong>Total Lines:</strong> {fullPageResult.total_lines}
+          </p>
+          {fullPageResult.preprocess_applied.length > 0 && (
+            <p>
+              <strong>Preprocessing:</strong> {fullPageResult.preprocess_applied.join(', ')}
+            </p>
           )}
+
+          <div style={{ marginTop: '1rem', maxHeight: '400px', overflowY: 'auto' }}>
+            <h4>Transcribed Lines</h4>
+            {fullPageResult.lines.map((line, idx) => (
+              <div key={line.line_id} style={{
+                marginBottom: '1rem',
+                padding: '0.5rem',
+                border: '1px solid #e5e7eb',
+                borderRadius: '4px'
+              }}>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>
+                  Line {idx + 1} | BBox: x={line.bbox.x} y={line.bbox.y} w={line.bbox.w} h={line.bbox.h}
+                  {line.confidence && ` | Confidence: ${line.confidence.toFixed(3)}`}
+                </div>
+                <div style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                  {line.text || <em>empty</em>}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
         <p>No result yet.</p>
       )}
-      {bbox && !result && <p>Selection: {JSON.stringify(bbox)}</p>}
     </div>
   )
 }

@@ -12,7 +12,7 @@ Prototype web application for quickly testing handwritten text recognition (HTR)
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate
+source .venv/Scripts/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
